@@ -1,0 +1,11 @@
+node_modules/
+.auth/
+.env
+*.log
+output/
+.playwright-cli/
+deepseek-auth.json
+.agents/
+docs/
+CONTEXT.md
+

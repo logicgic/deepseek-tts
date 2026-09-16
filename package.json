@@ -1,0 +1,21 @@
+{
+  "name": "deepseek-voice-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "login": "node scripts/login.mjs",
+    "start": "node src/server.mjs",
+    "voices": "node scripts/client.mjs voices",
+    "speak": "node scripts/client.mjs speak",
+    "chat": "node scripts/client.mjs chat",
+    "test": "node --test --test-timeout=15000 test/*.test.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.58.2",
+    "tough-cookie": "^6.0.0",
+    "ws": "^8.19.0"
+  }
+}
