@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 
 try {
   const { challenge, file, sha256 } = workerData;
-  if (challenge.algorithm !== 'DeepSeekHashV1') throw new Error('UNSUPPORTED_POW');
   const bytes = await readFile(file);
   if (createHash('sha256').update(bytes).digest('hex') !== sha256) throw new Error('POW_ASSET_INVALID');
   const { instance } = await WebAssembly.instantiate(bytes, { wbg: {} });
@@ -29,6 +28,6 @@ try {
     wasm.__wbindgen_add_to_stack_pointer(16);
   }
 } catch (error) {
-  const allowed = new Set(['UNSUPPORTED_POW', 'POW_ASSET_INVALID', 'POW_NO_SOLUTION']);
+  const allowed = new Set(['POW_ASSET_INVALID', 'POW_NO_SOLUTION']);
   parentPort.postMessage({ error: allowed.has(error.message) ? error.message : 'POW_FAILED' });
 }

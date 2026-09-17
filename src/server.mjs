@@ -7,6 +7,7 @@ import { DeepSeekHttp } from './http-client.mjs';
 import { VoiceService, validateInput, validateChatInput } from './service.mjs';
 import { SerialQueue } from './queue.mjs';
 import { AppError, normalizeError } from './errors.mjs';
+import { playWav } from './playback.mjs';
 
 async function bodyJson(request) {
   if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') throw new AppError('CONTENT_TYPE', '请使用 Content-Type: application/json。', 415);
@@ -32,6 +33,7 @@ export function createApiServer({
     onProgress: (stage) => console.log(JSON.stringify({ request_id: requestId, stage })),
   }),
   log = (record) => console.log(JSON.stringify(record)),
+  player = playWav,
 } = {}) {
   const queue = new SerialQueue(LIMITS.maxQueued);
   const shutdown = new AbortController();
@@ -70,17 +72,31 @@ export function createApiServer({
         let responseFormat = 'wav';
         if (isChat) responseFormat = validateChatInput(input).responseFormat;
         else validateInput(input);
+        if (input.play !== undefined && typeof input.play !== 'boolean') throw new AppError('INVALID_PLAY', 'play 必须为布尔值。', 400);
         const result = await queue.run(async () => {
           const service = await serviceFactory(requestId);
-          return isChat ? service.chat(input, signal) : service.synthesize(input, signal);
+          const audio = await (isChat ? service.chat(input, signal) : service.synthesize(input, signal));
+          let playback = 'disabled';
+          if (input.play !== false) {
+            signal.throwIfAborted();
+            try { playback = await player(audio.wav, signal); }
+            catch (error) {
+              signal.throwIfAborted();
+              playback = 'failed';
+              log({ request_id: requestId, status: 'playback_failed' });
+            }
+          }
+          return { ...audio, playback };
         }, signal);
         signal.throwIfAborted();
+        response.setHeader('x-audio-playback', result.playback);
         if (isChat && responseFormat === 'json') {
           sendJson(response, 200, {
             text: result.text,
             chat_session_id: result.sessionId,
             message_id: result.messageId,
             voice_id: result.voiceId,
+            playback: result.playback,
             audio: { format: 'wav', sample_rate: 24000, channels: 1, duration_seconds: result.seconds, base64: result.wav.toString('base64') },
             request_id: requestId,
           });

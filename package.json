@@ -10,8 +10,7 @@
     "voices": "node scripts/client.mjs voices",
     "speak": "node scripts/client.mjs speak",
     "chat": "node scripts/client.mjs chat",
-    "test": "node --test --test-timeout=15000 test/*.test.mjs",
-    "check": "node scripts/check.mjs"
+    "test": "node --test --test-timeout=15000 test/*.test.mjs"
   },
   "dependencies": {
     "playwright": "^1.58.2",

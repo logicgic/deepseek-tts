@@ -100,7 +100,7 @@ export function applyPatch(root, { path, op, value }) {
 
 export async function collectAnswer(body) {
   const patches = new PatchDecoder();
-  let root = {}, readyId, initialId;
+  let root = {}, initialId;
   for await (const frame of sseEvents(body)) {
     let data;
     // The official parser ignores data on finish. Do not infer success from it.
@@ -115,10 +115,9 @@ export async function collectAnswer(body) {
           else if (initialId !== root.response.message_id) throw protocol('文字流中的回答 ID 发生变化。');
         }
       }
-    } else if (frame.event === 'ready') readyId = data.response_message_id;
-    else if ((frame.event === 'hint' || frame.event === 'toast') && (data.type === 'error' || data.clear_response || data.finish_reason)) {
+    } else if ((frame.event === 'hint' || frame.event === 'toast') && (data.type === 'error' || data.clear_response || data.finish_reason)) {
       throw new AppError('CHAT_REJECTED', 'DeepSeek 未完成回答或撤回了回答。');
-    } else if (!['close', 'title', 'update_session', 'update_parent_message', 'update_file', 'debug', 'hint', 'toast'].includes(frame.event)) {
+    } else if (!['ready', 'close', 'title', 'update_session', 'update_parent_message', 'update_file', 'debug', 'hint', 'toast'].includes(frame.event)) {
       throw protocol('DeepSeek 文字流协议出现未知事件。');
     }
   }
@@ -128,5 +127,5 @@ export async function collectAnswer(body) {
   if (!Array.isArray(response.fragments) || response.fragments.some((f) => f.type === 'TEMPLATE_RESPONSE')) throw new AppError('CHAT_REJECTED', '返回内容不是可朗读的普通回答。');
   const fragments = response.fragments.filter((f) => f.type === 'RESPONSE');
   if (!fragments.length || fragments.some((f) => typeof f.content !== 'string')) throw protocol('缺少助手回答正文。');
-  return { text: fragments.map((f) => f.content).join(''), messageId: response.message_id, readyId };
+  return { text: fragments.map((f) => f.content).join(''), messageId: response.message_id };
 }

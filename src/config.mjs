@@ -6,7 +6,7 @@ export const DEEPSEEK_ORIGIN = 'https://chat.deepseek.com';
 export const AUTH_DIR = path.resolve(process.env.DS_AUTH_DIR || path.join(ROOT, '.auth'));
 export const AUTH_FILE = path.join(AUTH_DIR, 'session.json');
 export const PROFILE_DIR = path.join(AUTH_DIR, 'browser-profile');
-export const WASM_FILE = path.join(ROOT, 'docs/research/evidence/deepseek-web-2026-09-16/sha3_wasm_bg.7b9ca65ddd.wasm');
+export const WASM_FILE = path.join(ROOT, 'assets/sha3.wasm');
 export const WASM_SHA256 = 'b3fca8cc072c1defbd60c02266a8e48bd307a1804aaff4314900aea720e72f7d';
 
 export const LIMITS = Object.freeze({

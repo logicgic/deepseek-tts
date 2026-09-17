@@ -7,8 +7,8 @@ import { SerialQueue } from '../src/queue.mjs';
 import { wavFromPcm } from '../src/audio.mjs';
 import { AppError } from '../src/errors.mjs';
 
-async function api(t, service) {
-  const server = createApiServer({ serviceFactory: async () => service, log: () => {} });
+async function api(t, service, player = async () => 'played') {
+  const server = createApiServer({ serviceFactory: async () => service, log: () => {}, player });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(async () => { server.shutdown(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); });
@@ -23,6 +23,61 @@ test('API returns a complete WAV and accepts voice selection', async (t) => {
   const response = await fetch(`${base}/tts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '你好', voice_id: 'synthetic' }) });
   assert.equal(response.status, 200); assert.equal(response.headers.get('content-type'), 'audio/wav');
   assert.equal((await response.arrayBuffer()).byteLength, 46);
+});
+
+test('both speech endpoints default to playback, allow opt-out, and preserve audio on playback failure', async (t) => {
+  const wav = wavFromPcm(Buffer.from([1, 0]));
+  let played = 0, generated = 0, fail = false;
+  const generate = async () => {
+    generated++;
+    return { wav, text: '你好', voiceId: 'a', sessionId: 'session', messageId: 2, seconds: 1 / 24000 };
+  };
+  const base = await api(t, { synthesize: generate, chat: generate }, async (bytes) => {
+    assert.deepEqual(bytes, wav);
+    played++;
+    if (fail) throw new Error('private device error');
+    return 'played';
+  });
+  for (const route of ['/tts', '/chat/tts']) {
+    const post = (extra) => fetch(`${base}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ [route === '/tts' ? 'text' : 'prompt']: '你好', ...extra }) });
+    for (const extra of [{}, { play: true }, { play: false }]) {
+      const before = played;
+      const response = await post(extra);
+      assert.equal(response.status, 200);
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), wav);
+      assert.equal(played - before, extra.play === false ? 0 : 1);
+      assert.equal(response.headers.get('x-audio-playback'), extra.play === false ? 'disabled' : 'played');
+    }
+    const before = generated;
+    assert.equal((await post({ play: 'false' })).status, 400);
+    assert.equal(generated, before);
+    fail = true;
+    const response = await post({});
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('x-audio-playback'), 'failed');
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), wav);
+    fail = false;
+  }
+});
+
+test('playback completes before the next queued speech job starts', async (t) => {
+  const events = [];
+  const generate = async () => {
+    events.push('generate');
+    return { wav: wavFromPcm(Buffer.from([1, 0])), voiceId: 'a', sessionId: 's', messageId: 2, seconds: 1 / 24000 };
+  };
+  const base = await api(t, { synthesize: generate }, async () => {
+    events.push('play');
+    await delay(30);
+    events.push('end');
+    return 'played';
+  });
+  await Promise.all([1, 2].map(async () => {
+    const response = await fetch(`${base}/tts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"text":"你好"}' });
+    assert.equal(response.status, 200);
+    await response.arrayBuffer();
+  }));
+  assert.deepEqual(events, ['generate', 'play', 'end', 'generate', 'play', 'end']);
 });
 
 test('invalid requests and hostile web origins cannot trigger synthesis', async (t) => {

@@ -16,11 +16,12 @@ try {
     const isChat = command === 'chat';
     const sessionId = value('--session');
     const parent = value('--parent');
+    const playback = { play: !args.includes('--no-play') };
     response = await fetch(`${base}${isChat ? '/chat/tts' : '/tts'}`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(isChat
-        ? { prompt: text, voice_id: value('--voice'), response_format: 'json', chat_session_id: sessionId, parent_message_id: parent === undefined ? undefined : Number(parent) }
-        : { text, voice_id: value('--voice') }), signal: AbortSignal.timeout(310_000),
+        ? { ...playback, prompt: text, voice_id: value('--voice'), response_format: 'json', chat_session_id: sessionId, parent_message_id: parent === undefined ? undefined : Number(parent) }
+        : { ...playback, text, voice_id: value('--voice') }), signal: AbortSignal.timeout(310_000),
     });
   } else throw new Error('用法：npm run voices，npm run speak -- --text "你好"，或 npm run chat -- --text "讲一个故事"');
   if (!response.ok) {
@@ -50,6 +51,10 @@ try {
       console.log(`续聊参数：--session ${answer.chat_session_id} --parent ${answer.message_id}`);
     }
     console.log(`已保存 ${file}（${duration} 秒）`);
+    const playbackStatus = response.headers.get('x-audio-playback');
+    if (playbackStatus === 'played') console.log('已通过 Windows 默认音频输出播放。');
+    if (playbackStatus === 'failed') console.error('自动播放失败，音频已保存，可使用播放器打开。');
+    if (playbackStatus === 'unsupported') console.log('当前系统不支持自动播放，音频已保存。');
   }
 } catch (error) {
   console.error(error.cause?.code === 'ECONNREFUSED' ? 'API 尚未启动，请先运行 npm start。' : error.message);

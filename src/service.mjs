@@ -7,21 +7,21 @@ import { solvePow } from './pow.mjs';
 
 export const normalizeText = (text) => text.replace(/\r\n?/gu, '\n').trim();
 
-export function validateInput(input) {
+function validateTextInput(input, field, allowed) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new AppError('INVALID_INPUT', '请求体必须是 JSON 对象。', 400);
-  if (Object.keys(input).some((key) => !['text', 'voice_id'].includes(key))) throw new AppError('INVALID_INPUT', '只接受 text 和可选的 voice_id。', 400);
-  if (typeof input.text !== 'string' || !input.text.trim()) throw new AppError('INVALID_INPUT', 'text 不能为空。', 400);
-  if ([...input.text].length > LIMITS.maxCharacters) throw new AppError('TEXT_TOO_LONG', `第一版每次最多 ${LIMITS.maxCharacters} 个字符。`, 413);
+  if (Object.keys(input).some((key) => !allowed.includes(key))) throw new AppError('INVALID_INPUT', `只接受以下字段：${allowed.join('、')}。`, 400);
+  if (typeof input[field] !== 'string' || !input[field].trim()) throw new AppError('INVALID_INPUT', `${field} 不能为空。`, 400);
+  if ([...input[field]].length > LIMITS.maxCharacters) throw new AppError('TEXT_TOO_LONG', `每次最多 ${LIMITS.maxCharacters} 个字符。`, 413);
   if (input.voice_id !== undefined && (typeof input.voice_id !== 'string' || !input.voice_id || input.voice_id.length > 128)) throw new AppError('INVALID_INPUT', 'voice_id 必须是音色列表中的字符串 ID。', 400);
+}
+
+export function validateInput(input) {
+  validateTextInput(input, 'text', ['text', 'voice_id', 'play']);
   return { text: input.text, voiceId: input.voice_id };
 }
 
 export function validateChatInput(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new AppError('INVALID_INPUT', '请求体必须是 JSON 对象。', 400);
-  const allowed = ['prompt', 'voice_id', 'response_format', 'chat_session_id', 'parent_message_id'];
-  if (Object.keys(input).some((key) => !allowed.includes(key))) throw new AppError('INVALID_INPUT', '对话接口只接受 prompt、voice_id、response_format 和会话续聊参数。', 400);
-  if (typeof input.prompt !== 'string' || !input.prompt.trim()) throw new AppError('INVALID_INPUT', 'prompt 不能为空。', 400);
-  validateInput({ text: input.prompt, voice_id: input.voice_id });
+  validateTextInput(input, 'prompt', ['prompt', 'voice_id', 'response_format', 'chat_session_id', 'parent_message_id', 'play']);
   const responseFormat = input.response_format ?? 'wav';
   if (!['wav', 'json'].includes(responseFormat)) throw new AppError('INVALID_INPUT', 'response_format 只能是 wav 或 json。', 400);
   const sessionId = input.chat_session_id;
@@ -118,22 +118,21 @@ export class VoiceService {
     const { text, voiceId } = validateInput(input);
     const voice = await this.resolveVoice(voiceId, signal);
     const modelType = await this.model(signal);
-    let answer;
+    const normalizedText = normalizeText(text);
+    let actual;
     for (let attempt = 0; attempt < 2; attempt++) {
       signal?.throwIfAborted();
-      answer = await this.repeat(text, modelType, attempt, signal);
-      if (normalizeText(answer.text) === normalizeText(text)) break;
-      if (attempt === 1) {
-        const expected = [...normalizeText(text)], actual = [...normalizeText(answer.text)];
-        let position = 0;
-        while (position < Math.min(expected.length, actual.length) && expected[position] === actual[position]) position++;
-        throw new AppError('TEXT_MISMATCH', '助手两次复述均与原文不一致，未请求音频。', 422, {
-          attempts: 2, first_difference: position, expected_length: expected.length, actual_length: actual.length,
-        });
-      }
-      this.onProgress('retry_text_mismatch');
+      const answer = await this.repeat(text, modelType, attempt, signal);
+      if (normalizeText(answer.text) === normalizedText) return this.readAnswer(answer, voice, signal);
+      actual = [...normalizeText(answer.text)];
+      if (attempt === 0) this.onProgress('retry_text_mismatch');
     }
-    return this.readAnswer(answer, voice, signal);
+    const expected = [...normalizedText];
+    let position = 0;
+    while (position < Math.min(expected.length, actual.length) && expected[position] === actual[position]) position++;
+    throw new AppError('TEXT_MISMATCH', '助手两次复述均与原文不一致，未请求音频。', 422, {
+      attempts: 2, first_difference: position, expected_length: expected.length, actual_length: actual.length,
+    });
   }
 
   async chat(input, signal) {

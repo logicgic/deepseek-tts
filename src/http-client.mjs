@@ -57,24 +57,22 @@ export class DeepSeekHttp {
       }),
       ...(json === undefined ? {} : { body: JSON.stringify(json) }),
     });
-    for (const cookie of response.headers.getSetCookie?.() || []) {
+    for (const cookie of response.headers.getSetCookie()) {
       await this.session.jar.setCookie(cookie, url.href);
     }
+    let error;
     if (response.headers.get('x-amzn-waf-action') || response.headers.get('cf-mitigated') === 'challenge') {
-      await response.body?.cancel();
-      throw new AppError('BROWSER_VERIFICATION_REQUIRED', 'DeepSeek 要求浏览器验证，请运行 npm run login 完成人工验证。', 403);
+      error = new AppError('BROWSER_VERIFICATION_REQUIRED', 'DeepSeek 要求浏览器验证，请运行 npm run login 完成人工验证。', 403);
+    } else if ([401, 403].includes(response.status)) {
+      error = new AppError(response.status === 401 ? 'LOGIN_EXPIRED' : 'ACCESS_DENIED', 'DeepSeek 拒绝访问，请检查登录会话或在登录浏览器中确认账号状态。', response.status);
+    } else if (response.status === 429) {
+      error = new AppError('RATE_LIMITED', 'DeepSeek 请求频率受限，请稍后再试。', 429);
+    } else if (!response.ok) {
+      error = new AppError('UPSTREAM_HTTP', 'DeepSeek 服务请求失败。', 502, { upstream_status: response.status });
     }
-    if ([401, 403].includes(response.status)) {
+    if (error) {
       await response.body?.cancel();
-      throw new AppError(response.status === 401 ? 'LOGIN_EXPIRED' : 'ACCESS_DENIED', 'DeepSeek 拒绝访问，请检查登录会话或在登录浏览器中确认账号状态。', response.status);
-    }
-    if (response.status === 429) {
-      await response.body?.cancel();
-      throw new AppError('RATE_LIMITED', 'DeepSeek 请求频率受限，请稍后再试。', 429);
-    }
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new AppError('UPSTREAM_HTTP', 'DeepSeek 服务请求失败。', 502, { upstream_status: response.status });
+      throw error;
     }
     return response;
   }
